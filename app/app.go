@@ -563,27 +563,20 @@ func New(
 	app.SetBeginBlocker(app.BeginBlocker)
 	app.SetEndBlocker(app.EndBlocker)
 
-	// // Gravity Wars - Week 2 - Upgrade by governance
-	// upgradeName := "gw-beta"
-	// app.UpgradeKeeper.SetUpgradeHandler(
-	// 	upgradeName,
-	// 	func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
-	// 		logg.Println(fromVM)
-	// 		return app.mm.RunMigrations(ctx, cfg, fromVM)
-	// 	},
-	// )
+	// Gravity Wars - Week 2 - Upgrade by governance
+	upgradeName := "gw-beta"
+	app.UpgradeKeeper.SetUpgradeHandler(
+		upgradeName,
+		func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+			return app.mm.RunMigrations(ctx, cfg, fromVM)
+		},
+	)
 
-	// upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
-	// if err != nil {
-	// 	panic(fmt.Sprintf("failed to read upgrade info from disk %s", err))
-	// }
-
-	// if upgradeInfo.Name == upgradeName && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
-	// 	// storeUpgrades := storetypes.StoreUpgrades{}
-
-	// 	// configure store loader that checks if version == upgradeHeight and applies store upgrades
-	// 	app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, nil))
-	// }
+	if loadLatest {
+		if err := app.LoadLatestVersion(); err != nil {
+			tmos.Exit(fmt.Sprintf("failed to load latest version: %s", err))
+		}
+	}
 
 	return app
 }

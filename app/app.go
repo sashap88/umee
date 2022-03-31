@@ -15,9 +15,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
@@ -277,6 +279,9 @@ func New(
 		memKeys:           memKeys,
 	}
 
+	cfg := module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
+
+	app.SetVersion(version.Version)
 	app.ParamsKeeper = initParamsKeeper(
 		appCodec,
 		legacyAmino,
@@ -374,6 +379,7 @@ func New(
 		homePath,
 		app.BaseApp,
 	)
+
 	app.OracleKeeper = oraclekeeper.NewKeeper(
 		appCodec,
 		keys[oracletypes.ModuleName],
@@ -483,6 +489,7 @@ func New(
 
 	skipGenesisInvariants := cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
 
+	app.registerStoreLoaders()
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 	app.mm = module.NewManager(
@@ -599,7 +606,7 @@ func New(
 
 	app.mm.RegisterInvariants(&app.CrisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
-	app.mm.RegisterServices(module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter()))
+	app.mm.RegisterServices(cfg)
 
 	// Create the simulation manager and define the order of the modules for
 	// deterministic simulations.
@@ -649,6 +656,14 @@ func New(
 	app.SetBeginBlocker(app.BeginBlocker)
 	app.SetEndBlocker(app.EndBlocker)
 
+	app.UpgradeKeeper.SetUpgradeHandler("yeet", func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+		// app.LeverageKeeper.SetParams(ctx, leveragetypes.DefaultParams())
+		// app.OracleKeeper.SetParams(ctx, oracletypes.DefaultParams())
+		fromVM[leveragetypes.ModuleName] = leverage.AppModule{}.ConsensusVersion()
+		fromVM[oracletypes.ModuleName] = oracle.AppModule{}.ConsensusVersion()
+		return app.mm.RunMigrations(ctx, cfg, fromVM)
+	})
+
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(fmt.Sprintf("failed to load latest version: %s", err))
@@ -656,6 +671,27 @@ func New(
 	}
 
 	return app
+}
+
+// Sets up the StoreLoader for new, deleted, or renamed modules
+func (app *UmeeApp) registerStoreLoaders() {
+	// Read the upgrade height and name from previous execution
+	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
+	if err != nil {
+		panic(err)
+	}
+
+	if upgradeInfo.Name == "yeet" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added:   []string{leveragetypes.ModuleName, oracletypes.ModuleName},
+			Renamed: nil,
+			Deleted: nil,
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
+
 }
 
 // Name returns the name of the Umee network.
